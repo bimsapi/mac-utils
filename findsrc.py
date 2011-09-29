@@ -1,0 +1,107 @@
+#!/usr/bin/python
+
+from Foundation import *
+from PyObjCTools import AppHelper
+import sys
+from optparse import OptionParser
+
+fileExt = ['jspf', 'sql', 'jsp', 'vm', 'xml']
+
+class Query(NSObject):
+
+  def init(self):
+    super(Query,self).init()
+    self.queryObject = NSMetadataQuery.alloc().init()
+    self.searchScope = [NSMetadataQueryUserHomeScope]
+    self.expr = ''
+    #metadata results rely on 1) notifications and 2) an event loop
+    nf = NSNotificationCenter.defaultCenter()
+    nf.addObserver_selector_name_object_(self, "queryNotification:", None, self.queryObject)
+    return self
+
+  def execute(self):
+    predicate = NSPredicate.predicateWithFormat_(self.expr)
+    self.queryObject.setPredicate_(predicate)
+    self.queryObject.setSearchScopes_(self.searchScope)
+    self.queryObject.startQuery()
+ 
+  def queryNotification_(self,note):
+    """For now, only respond to the 'finish gathering' notification in 
+       order to stop the query, print results, and terminate the event loop
+    """
+    message = note.name()
+    if message == NSMetadataQueryDidFinishGatheringNotification:
+      self.queryObject.stopQuery() 
+      #remember, this is called on an event thread... to stop the app we 
+      #need to stop the loop on the main thread, which is what this
+      #does. You could call sys.exit(), but that wouldn't allow any
+      #post processing when the event loop returns
+      AppHelper.callAfter(AppHelper.stopEventLoop)
+    elif message == NSMetadataQueryDidStartGatheringNotification:
+      pass
+    elif message == NSMetadataQueryGatheringProgressNotification:
+      pass
+    elif message == NSMetadataQueryDidUpdateNotification:
+      pass
+
+  def getResults(self):
+    for item in self.queryObject.results():
+      print item.valueForAttribute_('kMDItemPath')
+
+  def makePredicate(self, args):
+    """
+    note - apparently mdfind does some pre-processing on query strings and replaces '='
+    and '==' operators with 'like'. Additionally, the spotlight programming guide explanation
+    of query syntax is wrong, or missing some key information. For example, the 
+    following query should be legal based on the documented examples:
+
+      kMDItemFSName = '*.sql'cwd
+
+    But it fails when creating a predicate via NSPredicate.predicateWithFormat:
+    It's possible that other predicate factory methods would be more appropriate. Instead,
+    a query clause like this will work:
+
+      kMDItemFSName like[cwd] '*.sql'
+    """
+    textSpec = " && ".join(["kMDItemTextContent ==[cwd] '%s'" % arg for arg in args])
+    fileSpec = " || ".join(["kMDItemFSName like '*.%s'" % ext for ext in fileExt])
+    #expr = "( %s ) && (kMDItemContentTypeTree == 'public.source-code' || ( %s ) )" % (textSpec, fileSpec)
+    typeSpec = "kMDItemContentTypeTree like[c] '*source*' || kMDItemKind like[c] '*source*'"
+    self.expr = "( %s ) && ( ( %s ) || ( %s ) )" % (textSpec, typeSpec, fileSpec)
+
+
+helpStr = '''Usage: %prog [options] arg1 [arg2 ... argN]
+
+Wrapper for OS X Metadata Search targeted to support searching source code by automatically creating
+predicates that will restrict based on file types (via extension or the kMDItemContentTypeTree attribute).
+
+Arguments are and'ed for the search predicate; if quoted, the arg will act as a 
+phrase search (i.e., order and proximity dependent). For example, "findsrc.py foo bar" will not
+return the same results as "findsrc.py 'foo bar'". 
+'''
+
+def main():
+  #use optparse.OptionParser instead of argparse.ArgumentParser because the latter is only in 2.7+
+  optparser = OptionParser(helpStr)
+  optparser.set_defaults(verbose=False,scope=None)
+  optparser.add_option("-v", "--verbose", action="store_true", help="Print diagnostic details, such as the search expression")
+  optparser.add_option("-d", "--dir", dest="scope", help="Restrict scope to the specified directory. The default is the user's home")
+  try:
+    (opts, args) = optparser.parse_args()
+    q = Query.alloc().init()
+    q.makePredicate(args)
+    if opts.verbose: print "Expression: %s" % q.expr
+    if opts.scope:
+      q.searchScope = [opts.scope]
+    q.execute()
+    #metadata query requires an event loop in order to gather results
+    AppHelper.runConsoleEventLoop(installInterrupt=True)
+    q.getResults()
+    if opts.verbose: print "%d files found" % q.queryObject.resultCount()
+  except Exception, err:
+    print err
+    import traceback
+    traceback.print_exc()
+
+if __name__ == '__main__':
+  main()
