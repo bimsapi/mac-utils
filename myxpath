@@ -1,0 +1,124 @@
+#!/usr/bin/perl5.10.0 -w
+
+eval 'exec /usr/bin/perl -w -S $0 ${1+"$@"}'
+if 0; # not running under some shell
+$0 =~ s/\d+\.\d+\.\d$//;
+use strict;
+use Getopt::Long;
+use Pod::Usage;
+use XML::XPath;
+
+$| = 1;
+
+my $verbose = 0;
+my $help;
+my $simple = 0;
+my $outline = 0;
+
+my %opts = ( 'verbose' => \$verbose,
+	     'help' => \$help,
+             'simple' => \$simple,
+             'outline=i' => \$outline );
+
+GetOptions( %opts ) or pod2usage(2);
+pod2usage(1) if $help;
+
+my $xpath;
+my @patterns;
+unless($outline) {
+  @patterns = split(/;/,shift(@ARGV));
+}
+else {
+  #if outline mode, create a simple list of simple patterns
+  push(@patterns, "/*");
+  for(my $i = 1; $i < $outline; $i++) {push(@patterns, "./*");}
+}
+
+
+if (@ARGV >= 1) {
+  foreach my $filename (@ARGV) {
+    $xpath = XML::XPath->new(filename => $filename);
+    process_input($xpath);
+  }
+}
+else {
+  $xpath = XML::XPath->new(ioref => \*STDIN);
+  process_input($xpath);
+}
+
+exit;
+
+sub process_input {
+  my ($xp, $ctx, $depth) = @_;
+  if(!defined($depth)) { $depth = 0; }
+  if($depth > $#patterns) { return; }
+  print "Processing pattern: $patterns[$depth], depth: ${depth}\n" if $verbose;
+
+  my $nodes;
+  $nodes = $xp->find($patterns[$depth], $ctx);
+  unless ($nodes->isa('XML::XPath::NodeSet')) {
+    print $nodes->value, "\n";
+    return;
+  }
+  foreach my $node ($nodes->get_nodelist) {
+    #print node indented
+    print_node($node,$depth);
+    #recurse
+    process_input($xp, $node, $depth+1);
+  }
+}
+
+sub print_node {
+  my ($node, $depth) = @_;
+  my $str;
+  if ($node->isa('XML::XPath::Node::Element')) {
+    unless($simple) {
+      $str = $node->toString(1);
+    }
+    else {
+      $str = $node->getName();
+    }
+  }
+  elsif ($node->isa('XML::XPath::Node::Attribute')) {
+    $str = $node->getNodeValue();
+  }
+  else {
+    $str = $node->toString();
+  }
+  my $pad = '';
+  for (my $i = 0; $i < $depth; $i++) { $pad = $pad . '  '; }
+  print("${pad}${str}\n");
+}
+
+
+__END__
+=head1 NAME
+
+myxpath - Simple Perl script to perform functions on XML files using XPath. Adapted from the xpath script shipped with
+Mac OS X, mainly to deal with simpler, more flexible output, and different argument parsing to deal with 
+multiple input files.
+
+The pattern argument can also contain multiple queries, separated by a semi-colon (therefore, semi-colons in XPath expressions
+would not evaluate correctly, so take care). The additional queries are executed against each node of the previous query, and the 
+results are printed indented. For example, you can create a simple outline of the Blackboard schema model with the 
+following compound query:
+
+   '//table/@name; ../column/@name'
+
+Note the relative path navigation via '..'
+
+=head1 SYNOPSIS
+
+myxpath [options] pattern [files]
+
+   -v, --verbose: print processing details such as filename(s) and number of nodes found.
+
+   -h, --help:    print this help message.
+
+   -o, --outline: depth to generate a simple outline of the XML. E.g., -o 3 prints the first 
+                  three levels of the XML outline. If -o is specified, [pattern] should not be 
+                  provided; otherwise, it will be used as a filename.
+
+   -s, --simple:  Output simple element names, rather than the the element declarations.
+
+=cut
