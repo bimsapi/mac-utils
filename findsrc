@@ -5,7 +5,7 @@ from PyObjCTools import AppHelper
 import sys
 from optparse import OptionParser
 
-fileExt = ['jspf', 'sql', 'jsp', 'vm', 'xml']
+fileExt = ['jspf', 'sql', 'jsp', 'vm', 'xml', 'java', 'py', 'pl']
 
 class Query(NSObject):
 
@@ -76,8 +76,8 @@ Wrapper for OS X Metadata Search targeted to support searching source code by au
 predicates that will restrict based on file types (via extension or the kMDItemContentTypeTree attribute).
 
 Arguments are and'ed for the search predicate; if quoted, the arg will act as a 
-phrase search (i.e., order and proximity dependent). For example, "findsrc.py foo bar" will not
-return the same results as "findsrc.py 'foo bar'". 
+phrase search (i.e., order and proximity dependent). For example, "findsrc foo bar" will not
+return the same results as "findsrc 'foo bar'". 
 '''
 
 def main():
