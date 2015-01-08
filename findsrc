@@ -3,7 +3,7 @@
 from Foundation import *
 from PyObjCTools import AppHelper
 import sys
-from optparse import OptionParser
+from argparse import ArgumentParser
 
 fileExt = ['jspf', 'sql', 'jsp', 'vm', 'xml', 'java', 'py', 'pl']
 
@@ -70,8 +70,7 @@ class Query(NSObject):
     self.expr = "( %s ) && ( ( %s ) || ( %s ) )" % (textSpec, typeSpec, fileSpec)
 
 
-helpStr = '''Usage: %prog [options] arg1 [arg2 ... argN]
-
+helpStr = '''
 Wrapper for OS X Metadata Search targeted to support searching source code by automatically creating
 predicates that will restrict based on file types (via extension or the kMDItemContentTypeTree attribute).
 
@@ -81,24 +80,29 @@ return the same results as "findsrc 'foo bar'".
 '''
 
 def main():
-  #use optparse.OptionParser instead of argparse.ArgumentParser because the latter is only in 2.7+
-  optparser = OptionParser(helpStr)
-  optparser.set_defaults(verbose=False,scope=None)
-  optparser.add_option("-v", "--verbose", action="store_true", help="Print diagnostic details, such as the search expression")
-  optparser.add_option("-d", "--dir", dest="scope", help="Restrict scope to the specified directory. The default is the user's home")
+  argparser = ArgumentParser(description=helpStr)
+  argparser.set_defaults(verbose=False,scope=None)
+  argparser.add_argument("-v", "--verbose", action="store_true", help="Print diagnostic details, such as the search expression")
+  argparser.add_argument("-d", "--dir", dest="scope", help="Restrict scope to the specified directory. The default is the user's home")
+  argparser.add_argument("args", nargs='+')
+
   try:
-    (opts, args) = optparser.parse_args()
+    opts = argparser.parse_args()
     q = Query.alloc().init()
-    q.makePredicate(args)
-    if opts.verbose: print "Expression: %s" % q.expr
+    q.makePredicate(opts.args)
+
+    if opts.verbose: print "Expression: {}".format(q.expr)
+
     if opts.scope:
       q.searchScope = [opts.scope]
+
     q.execute()
+
     #metadata query requires an event loop in order to gather results
     AppHelper.runConsoleEventLoop(installInterrupt=True)
     q.getResults()
-    if opts.verbose: print "%d files found" % q.queryObject.resultCount()
-  except Exception, err:
+    if opts.verbose: print "{} files found".format(q.queryObject.resultCount())
+  except Exception as err:
     print err
     import traceback
     traceback.print_exc()
